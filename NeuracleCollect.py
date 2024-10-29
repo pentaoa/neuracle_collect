@@ -10,13 +10,26 @@ from Jellyfish_Python_API.neuracle_api import DataServerThread
 from neuracle_lib.triggerBox import TriggerBox, PackageSensorPara
 
 
-def write_to_csv(sequence_number, sequence_index, label, directory):
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    file_path = os.path.join(directory, f'{time.strftime("%Y%m%d-%H%M%S")}.csv')
-    with open(file_path, mode='a', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow([sequence_number, sequence_index, label])
+def start_collect(npy_index, images, imageNames, tasks, labels, csv_dir):
+    image_count = len(images)
+    print("文件夹数量：", len(subdir))
+    print("图像数量：", image_count)
+    csv_file_path = os.path.join(csv_dir, 'image_data.csv')
+    # 链接图片、图片名、任务, 并打乱顺序
+    combined = list(zip(images, imageNames, tasks, labels))
+    random.shuffle(combined)
+    # 解包
+    images, imageNames, tasks, labels = zip(*combined)
+    with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(['npy_index', 'image_index', 'task', 'imageName', 'label'])  # 写入表头
+        for i in range(len(images)):
+            csv_writer.writerow([npy_index, i, tasks[i], imageNames[i], labels[i]])  # 写入每一行数据
+        model = TaskModel(npy_index, images, type=1, num_per_event=20)
+        view = TaskView()
+        print(f"第 {npy_index + 1} 组任务已创建，包含 {len(images)} 张图片")
+        controller = TaskController(model, view)
+        controller.run()
 
 
 def divide_into_batches(items, size):
@@ -41,7 +54,6 @@ class TaskModel:
         self.flagstop = False
         self.triggerbox = TriggerBox("COM4")
         self.sequence_indices = list(range(len(images)))
-
 
     def trigger(self, label):
         code = int(label)  # 直接将传入的类别编号转换为整数
@@ -238,12 +250,13 @@ class TaskController:
 if __name__ == '__main__':
     base_dir = r"C:\Users\ncclab\PycharmProjects\CognitiveTaskSet\training_images"
     csv_dir = r"C:\Users\ncclab\PycharmProjects\CognitiveTaskSet\99_neuracle\yiming"
-    images = []
-    imageNames = []
-    tasks = []
-    labels = []
+    imagesBuffer = []
+    imageNamesBuffer = []
+    tasksBuffer = []
+    labelsBuffer = []
     folder_count = 0
     subdir = ''
+    npy_index = 0
 
     for subdir in sorted(os.listdir(base_dir)):
         print("读取目录：", subdir)
@@ -256,35 +269,18 @@ if __name__ == '__main__':
                     image_path = os.path.join(subdir_path, file)
                     image = pg.image.load(image_path)
                     image = pg.transform.scale(image, (1200, 900))
-                    images.append(image)
-                    imageNames.append(file)
-                    tasks.append(subdir)
-                    labels.append(subdir.split('_')[0] + file[-7:-5])
+                    imagesBuffer.append(image)
+                    imageNamesBuffer.append(file)
+                    tasksBuffer.append(subdir)
+                    labelsBuffer.append(subdir.split('_')[0] + file[-7:-5])
             folder_count += 1
+            if folder_count % 20 == 0:
+                start_collect(npy_index, imagesBuffer, imageNamesBuffer, tasksBuffer, labelsBuffer, csv_dir)
+                imagesBuffer = []
+                imageNamesBuffer = []
+                tasksBuffer = []
+                labelsBuffer = []
+                npy_index += 1
 
-    image_count = len(images)
-    print("文件夹数量：", len(subdir))
-    print("图像数量：", image_count)
-
-    # 链接图片、图片名、任务, 并打乱顺序
-    combined = list(zip(images, imageNames, tasks, labels))
-    random.shuffle(combined)
-
-    # 解包
-    images, imageNames, tasks, labels = zip(*combined)
-
-    csv_file_path = os.path.join(csv_dir, 'image_data.csv')
-    with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csv_file:
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(['npy_index', 'task', 'imageName', 'label'])  # 写入表头
-
-        for batch_index, batch in enumerate(divide_into_batches(list(zip(images, imageNames, tasks, labels)), batch_size)):
-            images_batch, imageNames_batch, tasks_batch, labels_batch = zip(*batch)
-            for i in range(len(images_batch)):
-                # 写入每一行数据
-                csv_writer.writerow([batch_index, tasks_batch[i], imageNames_batch[i], labels_batch[i]])
-            model = TaskModel(batch_index, images_batch, type=1, num_per_event=20)
-            view = TaskView()
-            print(f"第 {batch_index + 1} 组任务已创建，包含 {len(images_batch)} 张图片")
-            controller = TaskController(model, view)
-            controller.run()
+    if len(imagesBuffer) != 0:
+        start_collect(npy_index, imagesBuffer, imageNamesBuffer, tasksBuffer, labelsBuffer, csv_dir)
