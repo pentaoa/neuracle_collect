@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/EEGCode.iml" filepath="$PROJECT_DIR$/.idea/EEGCode.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/neuracle_collect.iml" filepath="$PROJECT_DIR$/.idea/neuracle_collect.iml" />
     </modules>
   </component>
 </project>

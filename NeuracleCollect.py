@@ -4,33 +4,44 @@ import os
 import numpy as np
 import pygame as pg
 import time
-# from utils.task import TaskModel
+import csv
 
 from Jellyfish_Python_API.neuracle_api import DataServerThread
 from neuracle_lib.triggerBox import TriggerBox, PackageSensorPara
 
+
+def write_to_csv(sequence_number, sequence_index, label, directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    file_path = os.path.join(directory, f'{time.strftime("%Y%m%d-%H%M%S")}.csv')
+    with open(file_path, mode='a', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([sequence_number, sequence_index, label])
+
+
+def divide_into_batches(items, size):
+    """将列表按 batch_size 大小分组"""
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
 class TaskModel:
-    def __init__(self, images, imageNames, tasks, type, num_per_event):
+    def __init__(self, npy_index, images, type, num_per_event):
+        self.npy_index = npy_index
         self.images = images
-        self.imageNames = imageNames
-        self.tasks = tasks
         self.type = type
         self.num_per_event = num_per_event
         self.current_task_index = 0
         self.current_phase = 'guidance'
         self.current_sequence = 0
-        self.total_sequences = len(images) // 20
+        self.total_sequences = len(images) // num_per_event
         self.sample_rate = 1000
         self.t_buffer = 1000
         self.thread_data_server = DataServerThread(self.sample_rate, self.t_buffer)
         self.flagstop = False
         self.triggerbox = TriggerBox("COM4")
-        # 使用任务名称（即子目录名称）作为触发器代码
-        self.images_with_labels = [(image, (task.split('_')[0]+imageName[-7:-5])) for image, task, imageName in zip(images, tasks, imageNames)]
+        self.sequence_indices = list(range(len(images)))
 
-        self.sequence_indices = list(range(len(images)))  # 创建一个索引列表
-        print("图像数量：", len(images))
-        random.shuffle(self.sequence_indices)  # 打乱索引列表
 
     def trigger(self, label):
         code = int(label)  # 直接将传入的类别编号转换为整数
@@ -38,8 +49,8 @@ class TaskModel:
         self.triggerbox.output_event_data(code)
 
     def start_data_collection(self):
-        notconnect = self.thread_data_server.connect(hostname='127.0.0.1', port=8712)
-        if notconnect:
+        notConnect = self.thread_data_server.connect(hostname='127.0.0.1', port=8712)
+        if notConnect:
             raise Exception("Can't connect to JellyFish, please check the hostport.")
         else:
             while not self.thread_data_server.isReady():
@@ -53,7 +64,7 @@ class TaskModel:
 
     def save_data(self):
         data = self.thread_data_server.GetBufferData()
-        np.save(f'yiming/{time.strftime("%Y%m%d-%H%M%S")}-data.npy', data)
+        np.save(f'yiming/{time.strftime("%Y%m%d-%H%M%S")}-data-{npy_index}.npy', data)
         print("Data saved!")
 
     def get_next_sequence(self):
@@ -62,21 +73,22 @@ class TaskModel:
             raise Exception("All sequences have been displayed.")
 
         # 从打乱的索引列表中获取下一个序列的索引
-        start_index = self.current_sequence * self.num_per_event
-        end_index = start_index + self.num_per_event
-        sequence_indices = self.sequence_indices[start_index:end_index]
+        sequence_start_index = self.current_sequence * self.num_per_event
+        sequence_end_index = sequence_start_index + self.num_per_event
+        next_sequence_indices = self.sequence_indices[sequence_start_index:sequence_end_index]
 
         # 更新当前序列计数
         self.current_sequence += 1
 
         # 返回选中的图像和标签，即返回 20 个 images_with_labels 元组
-        return [self.images_with_labels[i] for i in sequence_indices]
+        return [(self.images[i], i) for i in next_sequence_indices]
 
     def reset_sequence(self):
         self.current_sequence = 0
 
     def set_phase(self, phase):
         self.current_phase = phase
+
 
 class TaskView:
     def __init__(self):
@@ -165,15 +177,15 @@ class TaskController:
                 time.sleep(0.75)  # 750ms 黑屏
                 self.model.set_phase('show_images')
 
-            # 修改展示图片序列的部分
             # 展示图片序列
             elif self.model.current_phase == 'show_images':
-                image_label_sequence = self.model.get_next_sequence()
-                for image_label_pair in image_label_sequence:
-                    image, label = image_label_pair
+                image_and_index= self.model.get_next_sequence()
+                for image_index_pair in image_and_index:
+                    image, label = image_index_pair
                     print("label: ", label)
                     self.view.display_image(image)
                     self.model.trigger(label)  # 使用图像的类别编号发送触发器
+                    write_to_csv(sequence_number, sequence_index, label)
                     time.sleep(0.1)
                     self.view.display_fixation()
                     time.sleep(0.1)
@@ -199,6 +211,14 @@ class TaskController:
                 time.sleep(2)  # 2秒眨眼时间
                 self.model.set_phase('black_screen_pre')
 
+            # 切换 npy 文件 TODO: 增加入口
+            elif self.model.current_phase == 'switch_npy':
+                self.view.display_text('阶段实验结束', (50, 50))
+                self.model.stop_data_collection()
+                self.model.save_data()
+                time.sleep(3)
+                self.model.set_phase('guidance')
+
             # 实验结束
             elif self.model.current_phase == 'conclusion':
                 self.view.display_text('实验结束', (50, 50))
@@ -221,27 +241,54 @@ if __name__ == '__main__':
     images = []
     imageNames = []
     tasks = []
-    max_folders = 10
+    labels = []
     folder_count = 0
+    subdir = ''
 
     for subdir in sorted(os.listdir(base_dir)):
         print("读取目录：", subdir)
-        if folder_count >= max_folders:
-            break
 
-        subdir_path = os.path.join(base_dir, subdir)
-        if os.path.isdir(subdir_path):
-            for file in sorted(os.listdir(subdir_path)):
-                if file.endswith((".jpg", ".png")):
-                    image_path = os.path.join(subdir_path, file)
-                    image = pg.image.load(image_path)
-                    image = pg.transform.scale(image, (1200, 900))
-                    images.append(image)
-                    imageNames.append(file)
-                    tasks.append(subdir)
-            folder_count += 1
+    subdir_path = os.path.join(base_dir, subdir)
 
-    model = TaskModel(images, imageNames, tasks, type=1, num_per_event=20)
-    view = TaskView()
-    controller = TaskController(model, view)
-    controller.run()
+    if os.path.isdir(subdir_path):
+        for file in sorted(os.listdir(subdir_path)):
+            if file.endswith((".jpg", ".png")):
+                image_path = os.path.join(subdir_path, file)
+                image = pg.image.load(image_path)
+                image = pg.transform.scale(image, (1200, 900))
+                images.append(image)
+                imageNames.append(file)
+                tasks.append(subdir)
+                labels.append(subdir.split('_')[0] + file[-7:-5])
+        folder_count += 1
+
+    image_count = len(images)
+    print("文件夹数量：", len(subdir))
+    print("图像数量：", image_count)
+
+    # 链接图片、图片名、任务, 并打乱顺序
+    combined = list(zip(images, imageNames, tasks, labels))
+    random.shuffle(combined)
+
+    # 解包
+    images, imageNames, tasks, labels = zip(*combined)
+
+    # 分组
+    batch_size = 200
+
+    csv_file_path = os.path.join(base_dir, 'image_data.csv')
+    with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(['npy_index', 'task', 'imageName', 'label'])  # 写入表头
+
+    for batch_index, batch in enumerate(divide_into_batches(list(zip(images, imageNames, tasks, labels)), batch_size)):
+        images_batch, imageNames_batch, tasks_batch, labels_batch = zip(*batch)
+        for i in range(len(images_batch)):
+            # 写入每一行数据
+            csv_writer.writerow([batch_index, tasks_batch[i], imageNames_batch[i], labels_batch[i]])
+        model = TaskModel(batch_index, images_batch, type=1, num_per_event=20)
+        view = TaskView()
+        print(f"第 {batch_index + 1} 组任务已创建，包含 {len(images_batch)} 张图片")
+        controller = TaskController(model, view)
+        controller.run()
+
