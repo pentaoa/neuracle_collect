@@ -62,7 +62,7 @@ class TaskModel:
         self.flagstop = True
         self.thread_data_server.stop()
 
-    def save_data(self):
+    def save_data(self, npy_index):
         data = self.thread_data_server.GetBufferData()
         np.save(f'yiming/{time.strftime("%Y%m%d-%H%M%S")}-data-{npy_index}.npy', data)
         print("Data saved!")
@@ -179,13 +179,12 @@ class TaskController:
 
             # 展示图片序列
             elif self.model.current_phase == 'show_images':
-                image_and_index= self.model.get_next_sequence()
+                image_and_index = self.model.get_next_sequence()
                 for image_index_pair in image_and_index:
                     image, label = image_index_pair
                     print("label: ", label)
                     self.view.display_image(image)
                     self.model.trigger(label)  # 使用图像的类别编号发送触发器
-                    write_to_csv(sequence_number, sequence_index, label)
                     time.sleep(0.1)
                     self.view.display_fixation()
                     time.sleep(0.1)
@@ -212,12 +211,12 @@ class TaskController:
                 self.model.set_phase('black_screen_pre')
 
             # 切换 npy 文件 TODO: 增加入口
-            elif self.model.current_phase == 'switch_npy':
-                self.view.display_text('阶段实验结束', (50, 50))
-                self.model.stop_data_collection()
-                self.model.save_data()
-                time.sleep(3)
-                self.model.set_phase('guidance')
+            # elif self.model.current_phase == 'switch_npy':
+            #     self.view.display_text('阶段实验结束', (50, 50))
+            #     self.model.stop_data_collection()
+            #     self.model.save_data()
+            #     time.sleep(3)
+            #     self.model.set_phase('guidance')
 
             # 实验结束
             elif self.model.current_phase == 'conclusion':
@@ -227,7 +226,7 @@ class TaskController:
 
         # 在实验循环结束后停止数据收集并保存数据
         self.model.stop_data_collection()
-        self.model.save_data()  # 保存数据
+        self.model.save_data(model.npy_index)  # 保存数据
         pg.quit()
 
     def handle_space(self):
@@ -238,6 +237,7 @@ class TaskController:
 
 if __name__ == '__main__':
     base_dir = r"C:\Users\ncclab\PycharmProjects\CognitiveTaskSet\training_images"
+    csv_dir = r"C:\Users\ncclab\PycharmProjects\CognitiveTaskSet\99_neuracle\yiming"
     images = []
     imageNames = []
     tasks = []
@@ -248,19 +248,19 @@ if __name__ == '__main__':
     for subdir in sorted(os.listdir(base_dir)):
         print("读取目录：", subdir)
 
-    subdir_path = os.path.join(base_dir, subdir)
+        subdir_path = os.path.join(base_dir, subdir)
 
-    if os.path.isdir(subdir_path):
-        for file in sorted(os.listdir(subdir_path)):
-            if file.endswith((".jpg", ".png")):
-                image_path = os.path.join(subdir_path, file)
-                image = pg.image.load(image_path)
-                image = pg.transform.scale(image, (1200, 900))
-                images.append(image)
-                imageNames.append(file)
-                tasks.append(subdir)
-                labels.append(subdir.split('_')[0] + file[-7:-5])
-        folder_count += 1
+        if os.path.isdir(subdir_path):
+            for file in sorted(os.listdir(subdir_path)):
+                if file.endswith((".jpg", ".png")):
+                    image_path = os.path.join(subdir_path, file)
+                    image = pg.image.load(image_path)
+                    image = pg.transform.scale(image, (1200, 900))
+                    images.append(image)
+                    imageNames.append(file)
+                    tasks.append(subdir)
+                    labels.append(subdir.split('_')[0] + file[-7:-5])
+            folder_count += 1
 
     image_count = len(images)
     print("文件夹数量：", len(subdir))
@@ -273,22 +273,18 @@ if __name__ == '__main__':
     # 解包
     images, imageNames, tasks, labels = zip(*combined)
 
-    # 分组
-    batch_size = 200
-
-    csv_file_path = os.path.join(base_dir, 'image_data.csv')
+    csv_file_path = os.path.join(csv_dir, 'image_data.csv')
     with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csv_file:
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow(['npy_index', 'task', 'imageName', 'label'])  # 写入表头
 
-    for batch_index, batch in enumerate(divide_into_batches(list(zip(images, imageNames, tasks, labels)), batch_size)):
-        images_batch, imageNames_batch, tasks_batch, labels_batch = zip(*batch)
-        for i in range(len(images_batch)):
-            # 写入每一行数据
-            csv_writer.writerow([batch_index, tasks_batch[i], imageNames_batch[i], labels_batch[i]])
-        model = TaskModel(batch_index, images_batch, type=1, num_per_event=20)
-        view = TaskView()
-        print(f"第 {batch_index + 1} 组任务已创建，包含 {len(images_batch)} 张图片")
-        controller = TaskController(model, view)
-        controller.run()
-
+        for batch_index, batch in enumerate(divide_into_batches(list(zip(images, imageNames, tasks, labels)), batch_size)):
+            images_batch, imageNames_batch, tasks_batch, labels_batch = zip(*batch)
+            for i in range(len(images_batch)):
+                # 写入每一行数据
+                csv_writer.writerow([batch_index, tasks_batch[i], imageNames_batch[i], labels_batch[i]])
+            model = TaskModel(batch_index, images_batch, type=1, num_per_event=20)
+            view = TaskView()
+            print(f"第 {batch_index + 1} 组任务已创建，包含 {len(images_batch)} 张图片")
+            controller = TaskController(model, view)
+            controller.run()
