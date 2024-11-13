@@ -5,37 +5,21 @@ import numpy as np
 import pygame as pg
 import time
 import csv
+import gc
 
 from Jellyfish_Python_API.neuracle_api import DataServerThread
 from neuracle_lib.triggerBox import TriggerBox, PackageSensorPara
 
 
-def start_collect(npy_index, images, imageNames, tasks, labels, csv_dir):
+def start_collect(npy_index, images):
     image_count = len(images)
     print("文件夹数量：", len(subdir))
     print("图像数量：", image_count)
-    csv_file_path = os.path.join(csv_dir, 'image_data.csv')
-    # 链接图片、图片名、任务, 并打乱顺序
-    combined = list(zip(images, imageNames, tasks, labels))
-    random.shuffle(combined)
-    # 解包
-    images, imageNames, tasks, labels = zip(*combined)
-    with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csv_file:
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(['npy_index', 'image_index', 'task', 'imageName', 'label'])  # 写入表头
-        for i in range(len(images)):
-            csv_writer.writerow([npy_index, i, tasks[i], imageNames[i], labels[i]])  # 写入每一行数据
-        model = TaskModel(npy_index, images, type=1, num_per_event=20)
-        view = TaskView()
-        print(f"第 {npy_index + 1} 组任务已创建，包含 {len(images)} 张图片")
-        controller = TaskController(model, view)
-        controller.run()
-
-
-def divide_into_batches(items, size):
-    """将列表按 batch_size 大小分组"""
-    for i in range(0, len(items), size):
-        yield items[i:i + size]
+    model = TaskModel(npy_index, images, type=1, num_per_event=20)
+    view = TaskView()
+    print(f"第 {npy_index + 1} 组任务已创建，包含 {len(images)} 张图片")
+    controller = TaskController(model, view)
+    controller.run()
 
 
 class TaskModel:
@@ -76,7 +60,7 @@ class TaskModel:
 
     def save_data(self, npy_index):
         data = self.thread_data_server.GetBufferData()
-        np.save(f'yiming/{time.strftime("%Y%m%d-%H%M%S")}-data-{npy_index}.npy', data)
+        np.save(f'/{time.strftime("%Y%m%d-%H%M%S")}-data-{npy_index}.npy', data)
         print("Data saved!")
 
     def get_next_sequence(self):
@@ -222,24 +206,17 @@ class TaskController:
                 time.sleep(2)  # 2秒眨眼时间
                 self.model.set_phase('black_screen_pre')
 
-            # 切换 npy 文件 TODO: 增加入口
-            # elif self.model.current_phase == 'switch_npy':
-            #     self.view.display_text('阶段实验结束', (50, 50))
-            #     self.model.stop_data_collection()
-            #     self.model.save_data()
-            #     time.sleep(3)
-            #     self.model.set_phase('guidance')
-
             # 实验结束
             elif self.model.current_phase == 'conclusion':
-                self.view.display_text('实验结束', (50, 50))
+                self.view.display_text('本段实验结束，请等待下一个提示', (50, 50))
                 time.sleep(3)  # 展示5秒结束文字
                 running = False
 
         # 在实验循环结束后停止数据收集并保存数据
         self.model.stop_data_collection()
-        self.model.save_data(model.npy_index)  # 保存数据
+        self.model.save_data(self.model.npy_index)  # 保存数据
         pg.quit()
+        gc.collect()
 
     def handle_space(self):
         # 按空格键跳转到下一个序列的开始
@@ -249,7 +226,8 @@ class TaskController:
 
 if __name__ == '__main__':
     base_dir = r"C:\Users\ncclab\PycharmProjects\CognitiveTaskSet\training_images"
-    csv_dir = r"C:\Users\ncclab\PycharmProjects\CognitiveTaskSet\99_neuracle\yiming"
+    # base_dir = r"C:\Users\ncclab\Documents\GitHub\neuracle_collect\training_images"
+    csv_dir = r"C:\Users\ncclab\PycharmProjects\CognitiveTaskSet\99_neuracle"
     imagesBuffer = []
     imageNamesBuffer = []
     tasksBuffer = []
@@ -258,29 +236,47 @@ if __name__ == '__main__':
     subdir = ''
     npy_index = 0
 
-    for subdir in sorted(os.listdir(base_dir)):
-        print("读取目录：", subdir)
+    csv_file_path = os.path.join(csv_dir, 'image_data.csv')
 
-        subdir_path = os.path.join(base_dir, subdir)
+    with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(['npy_index', 'image_index', 'task', 'imageName', 'label'])  # 写入表头
+        for subdir in sorted(os.listdir(base_dir)):
+            print("读取目录：", subdir)
+            subdir_path = os.path.join(base_dir, subdir)
+            if os.path.isdir(subdir_path):
+                for file in sorted(os.listdir(subdir_path)):
+                    if file.endswith((".jpg", ".png")):
+                        image_path = os.path.join(subdir_path, file)
+                        image = pg.image.load(image_path)
+                        image = pg.transform.scale(image, (1200, 900))
+                        imagesBuffer.append(image)
+                        imageNamesBuffer.append(file)
+                        tasksBuffer.append(subdir)
+                        labelsBuffer.append(subdir.split('_')[0] + file[-7:-5])
+                folder_count += 1
+                if folder_count % 20 == 0:
+                    # 链接图片、图片名、任务, 并打乱顺序
+                    combined = list(zip(imagesBuffer, imageNamesBuffer, tasksBuffer, labelsBuffer))
+                    random.shuffle(combined)
+                    # 解包
+                    imagesBuffer, imageNamesBuffer, tasksBuffer, labelsBuffer = zip(*combined)
+                    for i in range(len(imagesBuffer)):
+                        csv_writer.writerow(
+                            [npy_index, i, tasksBuffer[i], imageNamesBuffer[i], labelsBuffer[i]])  # 写入每一行数据
+                    start_collect(npy_index, imagesBuffer)
+                    imagesBuffer = []
+                    imageNamesBuffer = []
+                    tasksBuffer = []
+                    labelsBuffer = []
+                    npy_index += 1
 
-        if os.path.isdir(subdir_path):
-            for file in sorted(os.listdir(subdir_path)):
-                if file.endswith((".jpg", ".png")):
-                    image_path = os.path.join(subdir_path, file)
-                    image = pg.image.load(image_path)
-                    image = pg.transform.scale(image, (1200, 900))
-                    imagesBuffer.append(image)
-                    imageNamesBuffer.append(file)
-                    tasksBuffer.append(subdir)
-                    labelsBuffer.append(subdir.split('_')[0] + file[-7:-5])
-            folder_count += 1
-            if folder_count % 20 == 0:
-                start_collect(npy_index, imagesBuffer, imageNamesBuffer, tasksBuffer, labelsBuffer, csv_dir)
-                imagesBuffer = []
-                imageNamesBuffer = []
-                tasksBuffer = []
-                labelsBuffer = []
-                npy_index += 1
-
-    if len(imagesBuffer) != 0:
-        start_collect(npy_index, imagesBuffer, imageNamesBuffer, tasksBuffer, labelsBuffer, csv_dir)
+        if len(imagesBuffer) != 0:
+            # 链接图片、图片名、任务, 并打乱顺序
+            combined = list(zip(imagesBuffer, imageNamesBuffer, tasksBuffer, labelsBuffer))
+            random.shuffle(combined)
+            # 解包
+            imagesBuffer, imageNamesBuffer, tasksBuffer, labelsBuffer = zip(*combined)
+            for i in range(len(imagesBuffer)):
+                csv_writer.writerow([npy_index, i, tasksBuffer[i], imageNamesBuffer[i], labelsBuffer[i]])  # 写入每一行数据
+            start_collect(npy_index, imagesBuffer)
