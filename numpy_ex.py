@@ -3,8 +3,11 @@ import numpy as np
 # 加载 .npy 文件
 # data = np.load(r'C:\Users\Grada\Desktop\preprocessed_data\test\passive_data\1\20241012-214354-data.npy', allow_pickle=True)
 # data = np.load(r'C:\Users\Grada\Desktop\enriched_data\test\passive_data\1\20241012-214354-data.npy', allow_pickle=True)
-data = np.load(r'C:\Users\Grada\Desktop\preprocessed_data\test\passive_data\1\20241124-155407-data-0.npy', allow_pickle=True)
+# data = np.load(r'C:\Users\Grada\Desktop\preprocessed_data\test\passive_data\1\20241124-155407-data-0.npy', allow_pickle=True)
 # data = np.load(r'C:\Users\Grada\Desktop\enriched_data\test\passive_data\1\20241124-155407-data-0.npy', allow_pickle=True)
+# data = np.load('/Volumes/KPan/JiahaoTest/20241124-155407-data-0.npy')
+data = np.load('/Volumes/KPan/yuang/20241101-131532-data-0.npy')
+# data = np.load('/Volumes/KPan/yuang/20241101-131932-data-2.npy')
 
 
 # 检查加载的数据类型
@@ -38,7 +41,14 @@ print(f"Number of time points: {num_time_points}")
 #     if num != 0:
 #         print(num)
 
-# 示例：计算每个通道的平均值
-channel_means = np.mean(data, axis=1)
-print("\nMean value of each channel:")
-print(channel_means)
+i=0
+count=0
+for num in data[64]:
+    i+=1
+    if num != 0:
+        count +=1
+        # wait=input()
+        print(i)
+        print(num)
+
+print(count)
