@@ -239,15 +239,15 @@ def npy2raw(input_path):
 def save_raw(new_dir, preprocessed_dir):
     subjects_list = os.listdir(data_dir)
     # print(len(subjects_list))
-    for subject  in subjects_list:
+    for subject in subjects_list:
         # try:
-        cls_list = os.listdir(os.path.join(new_dir, subject, data_type[0]))
+        cls_list = os.listdir(os.path.join(new_dir, subject, data_type[1]))
         for cls in cls_list:                                
-            cls_path = os.path.join(new_dir, subject, data_type[0], cls)
+            cls_path = os.path.join(new_dir, subject, data_type[1], cls)
             data_list = os.listdir(cls_path)
             i = 0
             for data in data_list:                    
-                data_path = os.path.join(new_dir, subject, data_type[0], cls, data)
+                data_path = os.path.join(new_dir, subject, data_type[1], cls, data)
                 raw_data = npy2raw(data_path)
                 raw_data = preprocessing(raw_data)
                 print(data_path)
@@ -256,7 +256,7 @@ def save_raw(new_dir, preprocessed_dir):
                 d, times = raw_data[:, :]
                 # 保存数据为 .npy 格式
                 
-                save_path = os.path.join(preprocessed_dir, subject, data_type[0], cls, data)                                     
+                save_path = os.path.join(preprocessed_dir, subject, data_type[1], cls, data)                                     
                 os.makedirs(os.path.dirname(save_path), exist_ok=True)
                 # print(save_path)              
                 
