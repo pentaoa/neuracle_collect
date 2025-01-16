@@ -28,7 +28,7 @@ def create_event_based_npy(source_dir, preprocessed_dir, output_dir):
                 event_indices = event_indices // 4
                 for idx in event_indices:
                     if idx + 25 <= preprocessed_data.shape[1]:  # 确保索引不越界
-                        event_data = preprocessed_data[:64, idx:idx + 25] # 取出event前后25个时间点的数据，对应 0.1 秒
+                        event_data = preprocessed_data[:64, idx:idx + 250] # 取出event前后250个时间点的数据，对应 1 秒
                         event_based_data.append(event_data)
                 
                 event_based_data = np.array(event_based_data)
